@@ -1,0 +1,28 @@
+# Correct mods.toml structure
+modLoader="javafml"
+loaderVersion="[50,)"  # For 1.21.1
+license="GPL-3.0"      # Must match gradle.properties
+
+[[mods]]
+modId="larbaco_auth"
+version="1.0.0-alpha.1"
+displayName="Larbaco Auth"
+authors="Larbaco"
+displayURL="https://larbaco.com/larbaco_auth"
+issueTrackerURL="https://github.com/larbaco/larbaco_auth/issues"
+updateJSONURL="https://api.larbaco.com/versions.json"
+description='''
+Secure Minecraft server authentication system featuring:
+- Encrypted client-server communications
+- Brute-force attack protection
+- GUI login interface
+- Session management
+'''
+
+# Dependencies section (critical for NeoForge)
+[[dependencies.larbaco_auth]]
+modId="neoforge"
+mandatory=true
+versionRange="[21.1.146,)"  # Must match your NeoForge version
+ordering="NONE"
+side="BOTH"

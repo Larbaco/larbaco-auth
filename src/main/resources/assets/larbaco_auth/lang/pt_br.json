@@ -1,0 +1,6 @@
+{
+  "itemGroup.larbaco_auth": "Larbaco Auth Tab",
+  "block.larbaco_auth.example_block": "Bloco de Exemplo",
+  "item.larbaco_auth.example_item": "Example Item",
+  "string.larbaco_auth.login": "Please login with /login <password>"
+}
