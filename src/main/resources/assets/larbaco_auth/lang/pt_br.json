@@ -1,6 +1,14 @@
 {
-  "itemGroup.larbaco_auth": "Larbaco Auth Tab",
+  "itemGroup.tab_title": "Guia de Autenticação Larbaco",
   "block.larbaco_auth.example_block": "Bloco de Exemplo",
-  "item.larbaco_auth.example_item": "Example Item",
-  "string.larbaco_auth.login": "Please login with /login <password>"
+  "item.larbaco_auth.example_item": "Item de Exemplo",
+  "string.larbaco_auth.login": "Use /login <senha> para entrar no servidor",
+  "command.register.success": "§aCadastro completo! Agora use /login pra entrar",
+  "command.register.already_registered": "§eVocê já se cadastrou, jovem aventureiro!",
+  "command.register.invalid_password": "§cSenha inválida! Ela precisa conter: %s",
+  "command.login.already_authenticated": "§eVocê já está logado!",
+  "command.login.not_registered": "§cVocê precisa se cadastrar primeiro! (/register <senha>)",
+  "command.login.success": "§aLogin feito com sucesso! Bem-vindo de volta!",
+  "command.login.failed": "§cSenha errada! Você ainda tem %d tentativa(s)",
+  "command.login.locked": "§cMuitas tentativas falhas! Espere um pouco antes de tentar de novo."
 }

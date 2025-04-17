@@ -26,3 +26,4 @@ mandatory=true
 versionRange="[21.1.146,)"  # Must match your NeoForge version
 ordering="NONE"
 side="BOTH"
+jarJar="org.mindrot:jbcrypt:0.4"

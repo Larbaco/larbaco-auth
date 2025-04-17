@@ -18,16 +18,20 @@
 
 package com.larbaco.larbaco_auth;
 
+import com.larbaco.larbaco_auth.commands.LoginCommand;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import org.slf4j.Logger;
 import com.mojang.logging.LogUtils;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.fml.common.EventBusSubscriber;
+import com.larbaco.larbaco_auth.commands.RegisterCommand;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -58,7 +62,15 @@ public class LarbacoAuthMain {
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
 
         LOGGER.info("Larbaco Auth initialized"); // Removed event bus registration
+
+        NeoForge.EVENT_BUS.addListener(this::registerCommands);
     }
+
+    private void registerCommands(RegisterCommandsEvent event) {
+        RegisterCommand.register(event.getDispatcher());
+        LoginCommand.register(event.getDispatcher());
+    }
+
 
     // Client-side stub
     @EventBusSubscriber(modid = MODID, bus = EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)

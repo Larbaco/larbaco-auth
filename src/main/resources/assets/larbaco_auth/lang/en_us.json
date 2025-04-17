@@ -1,6 +1,14 @@
 {
-  "itemGroup.tab_title": "Larbaco Auth Tab",
-  "block.larbaco_auth.example_block": "Example Block",
-  "item.larbaco_auth.example_item": "Example Item",
-  "string.larbaco_auth.login": "Please login with /login <password>"
+  "itemGroup.tab_title": "Larbaco Auth Hub",
+  "block.larbaco_auth.example_block": "Mystery Block",
+  "item.larbaco_auth.example_item": "Curious Item",
+  "command.register.success": "§aYou're all set! Now log in with /login",
+  "command.register.already_registered": "§eYou've already signed up, explorer!",
+  "command.register.invalid_password": "§cOops! That password needs: %s",
+  "command.login.already_authenticated": "§eYou're already logged in, hero!",
+  "command.login.not_registered": "§cHold up! You need to register first. (/register <password>)",
+  "command.login.success": "§aLogin successful! Welcome back, adventurer!",
+  "command.login.failed": "§cWrong password! You've got %d tries left",
+  "command.login.locked": "§cToo many failed attempts! Take a breather and try again soon.",
+  "command.login.prompt": "Type /login <password> to hop in!"
 }

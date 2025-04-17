@@ -28,7 +28,13 @@
 package com.larbaco.larbaco_auth.handlers;
 
 import com.larbaco.larbaco_auth.LarbacoAuthMain;
+import com.larbaco.larbaco_auth.commands.LoginCommand;
+import com.larbaco.larbaco_auth.commands.RegisterCommand;
+import net.minecraft.core.Holder;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.player.Player;
@@ -44,9 +50,8 @@ import net.neoforged.neoforge.event.ServerChatEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.level.BlockEvent;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 @EventBusSubscriber(modid = LarbacoAuthMain.MODID)
 public class PlayerActionHandler {
@@ -54,8 +59,32 @@ public class PlayerActionHandler {
         LarbacoAuthMain.LOGGER.debug("[Auth] {}", message);
     }
 
+    private static void log(String message, Integer level) {
+        if (level == 0) {
+            LarbacoAuthMain.LOGGER.debug("[Auth] {}", message);
+        }
+        if (level == 1) {
+            LarbacoAuthMain.LOGGER.info("[Auth] {}", message);
+        }
+        if (level == 2) {
+            LarbacoAuthMain.LOGGER.error("[Auth] {}", message);
+        }
+    }
+
     private static final Map<UUID, Vec3> lastValidPositions = new HashMap<>();
     private static final double POSITION_EPSILON = 0.001;
+
+    private static record PlayerState(
+            GameType gameType,
+            List<CompoundTag> effectTags,
+            boolean mayFly,
+            boolean isFlying,
+            boolean invulnerable,
+            boolean instabuild
+    ) {
+    }
+
+    private static final Map<UUID, PlayerState> originalStates = new ConcurrentHashMap<>();
 
     @SubscribeEvent
     public static void onPlayerTick(PlayerTickEvent.Pre event) {
@@ -91,10 +120,29 @@ public class PlayerActionHandler {
 
     @SubscribeEvent
     public static void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
+        if (event.getEntity() instanceof ServerPlayer serverPlayer) {
+            log("Restoring before logout: " + serverPlayer.getName().getString());
+            try {
+                restoreOriginalPlayerState(serverPlayer);
+                // also undo any movement or ability flags here if you’ve changed them
+                serverPlayer.getAbilities().mayfly = false;
+                serverPlayer.getAbilities().flying = false;
+                serverPlayer.getAbilities().invulnerable = false;
+                serverPlayer.getAbilities().instabuild = false;
+                serverPlayer.onUpdateAbilities();
+            } catch (Exception e) {
+                log("Error in logout restore: " + e.getMessage(), 2);
+            }
+        }
+
         UUID uuid = event.getEntity().getUUID();
+        LarbacoAuthMain.setAuthenticated(uuid, false);
+        LoginCommand.clearAttempts(uuid);
         lastValidPositions.remove(uuid);
-        log("Cleared position tracking for: " + event.getEntity().getName().getString());
+        originalStates.remove(uuid);
+        log("Cleared auth data for: " + event.getEntity().getName().getString());
     }
+
 
     @SubscribeEvent
     public static void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
@@ -102,14 +150,39 @@ public class PlayerActionHandler {
         if (!(player instanceof ServerPlayer serverPlayer)) return;
 
         UUID uuid = serverPlayer.getUUID();
-        log("Player logged in: " + serverPlayer.getName().getString());
+        log("Player logged in: " + serverPlayer.getName().getString(), 1);
         lastValidPositions.put(uuid, serverPlayer.position());
 
-        sendAuthPrompt(serverPlayer);
+        originalStates.remove(uuid);
 
-        if (!LarbacoAuthMain.isPlayerAuthenticated(uuid)) {
-            restrictMovement(serverPlayer);
-            serverPlayer.sendSystemMessage(Component.literal("Please authenticate using /login"));
+        List<CompoundTag> effectTags = new ArrayList<>();
+        List<MobEffectInstance> currentEffects = new ArrayList<>(serverPlayer.getActiveEffects());
+
+        for (MobEffectInstance effect : currentEffects) {
+            Tag genericTag = effect.save();
+            if (genericTag instanceof CompoundTag tag) {
+                effectTags.add(tag);
+            }
+        }
+
+        var ab = serverPlayer.getAbilities();
+        originalStates.put(uuid, new PlayerState(
+                serverPlayer.gameMode.getGameModeForPlayer(),
+                effectTags, // Store NBT instead of instances
+                ab.mayfly,
+                ab.flying,
+                ab.invulnerable,
+                ab.instabuild
+        ));
+
+
+        sendAuthPrompt(serverPlayer);
+        applyLoginRestrictions(serverPlayer);
+
+        if (!RegisterCommand.isRegistered(uuid)) {
+            serverPlayer.sendSystemMessage(Component.translatable("command.register.prompt"));
+        } else if (!LarbacoAuthMain.isPlayerAuthenticated(uuid)) {
+            serverPlayer.sendSystemMessage(Component.translatable("command.login.prompt"));
         }
     }
 
@@ -128,30 +201,38 @@ public class PlayerActionHandler {
         player.sendSystemMessage(Component.literal("Welcome! Please use /login <password> or /register <password>"));
     }
 
-    private static void restrictMovement(Player player) {
-        log("Restricting movement for " + player.getName().getString());
+    private static void applyLoginRestrictions(ServerPlayer player) {
+        log("Applying login restrictions to: " + player.getName().getString());
 
-        if (player instanceof ServerPlayer serverPlayer) {
-            // Set to spectator mode
-            serverPlayer.setGameMode(GameType.SPECTATOR);
+        // Set spectator mode
+        player.setGameMode(GameType.SPECTATOR);
 
-            // Apply permanent blindness effect (duration in ticks, 20 ticks = 1 second)
-            serverPlayer.addEffect(new MobEffectInstance(
-                    MobEffects.BLINDNESS,
-                    Integer.MAX_VALUE,  // Duration (effectively infinite)
-                    1,                  // Amplifier (0 = level I, 1 = level II)
-                    false,               // Ambient particle effect
-                    false               // Show icon
-            ));
+        // Apply blindness
+        player.addEffect(new MobEffectInstance(
+                MobEffects.BLINDNESS,
+                Integer.MAX_VALUE,
+                1,
+                false,
+                false
+        ));
+
+        // Clear other effects
+        List<MobEffectInstance> toClear = new ArrayList<>(player.getActiveEffects());
+        for (MobEffectInstance effect : toClear) {
+            if (effect.getEffect() != MobEffects.BLINDNESS) {
+                player.removeEffect(effect.getEffect());
+            }
         }
+        // Freeze position
+        player.setDeltaMovement(Vec3.ZERO);
+    }
+
+    private static void restrictMovement(Player player) {
+        // log("Restricting movement for " + player.getName().getString());
+
         // Reset movement vectors
         player.setDeltaMovement(Vec3.ZERO);
 
-        // Update abilities
-        player.getAbilities().flying = false;
-        player.getAbilities().invulnerable = true;
-        player.getAbilities().instabuild = false;
-        player.onUpdateAbilities();
     }
 
     private static void restoreMovement(Player player) {
@@ -199,8 +280,103 @@ public class PlayerActionHandler {
     }
 
     public static void onAuthenticationSuccess(ServerPlayer player) {
-        log("Authentication successful for: " + player.getName().getString());
-        restoreMovement(player);
-        player.sendSystemMessage(Component.literal("Authentication successful!"));
+        UUID uuid = player.getUUID();
+        log("Restoring original state for: " + player.getName().getString());
+
+        try {
+            // Restore game mode and effects
+            restoreOriginalPlayerState(player);
+
+            // Clear authentication restrictions
+            removeAuthenticationEffects(player);
+            restorePlayerMovement(player);
+
+            // Cleanup tracking data
+            cleanupAuthenticationData(uuid);
+
+            player.sendSystemMessage(Component.literal("Authentication successful!"));
+            log("Full restoration complete for: " + player.getName().getString());
+        } catch (Exception e) {
+            log("Error restoring player state: " + e.getMessage(), 2);
+            player.sendSystemMessage(Component.literal("Error restoring your state! Contact admin."));
+        }
+    }
+
+    private static void restoreOriginalPlayerState(ServerPlayer player) {
+        PlayerState state = originalStates.remove(player.getUUID());
+        if (state == null) return;
+
+        player.removeAllEffects();
+        player.setGameMode(state.gameType());
+
+        for (CompoundTag tag : state.effectTags()) {
+            try {
+                MobEffectInstance effect = MobEffectInstance.load(tag);
+                if (effect == null) {
+                    log("Skipped null potion effect tag for " + player.getName().getString());
+                    continue;
+                }
+
+                // Avoid effects that might be corrupted or unloaded
+                var mobEffect = effect.getEffect();
+                if (mobEffect == null) {
+                    log("Skipped effect with null MobEffect for " + player.getName().getString());
+                    continue;
+                }
+
+                if (!mobEffect.is(MobEffects.BLINDNESS)) {
+                    player.addEffect(effect);
+                }
+            } catch (Exception e) {
+                log("Error restoring potion effect for " + player.getName().getString() + ": " + e.getMessage(), 2);
+            }
+        }
+    }
+
+    private static void removeAuthenticationEffects(ServerPlayer player) {
+        log("Clearing authentication effects for: " + player.getName().getString());
+        player.removeEffect(MobEffects.BLINDNESS);
+    }
+
+    private static void restorePlayerMovement(ServerPlayer player) {
+        log("Restoring movement for: " + player.getName().getString());
+        player.setDeltaMovement(Vec3.ZERO);
+        player.getAbilities().invulnerable = false;
+        player.onUpdateAbilities();
+    }
+
+    private static void restoreFullState(ServerPlayer player) {
+        PlayerState state = originalStates.remove(player.getUUID());
+        if (state == null) return;
+
+        player.removeAllEffects();
+        var ab = player.getAbilities();
+        ab.mayfly = false;
+        ab.flying = false;
+        ab.invulnerable = false;
+        ab.instabuild = false;
+        player.onUpdateAbilities();
+
+        player.setGameMode(state.gameType());
+
+        for (CompoundTag tag : state.effectTags()) {
+            MobEffectInstance effect = MobEffectInstance.load(tag);
+            if (effect != null && !effect.getEffect().is(MobEffects.BLINDNESS)) {
+                player.addEffect(effect);
+            }
+        }
+
+        ab.mayfly = state.mayFly();
+        ab.flying = state.isFlying();
+        ab.invulnerable = state.invulnerable();
+        ab.instabuild = state.instabuild();
+        player.onUpdateAbilities();
+        log("Fully restored state for " + player.getName().getString());
+    }
+
+    private static void cleanupAuthenticationData(UUID uuid) {
+        lastValidPositions.remove(uuid);
+        originalStates.remove(uuid); // Double cleanup for safety
+        log("Cleared authentication tracking data for UUID: " + uuid);
     }
 }
