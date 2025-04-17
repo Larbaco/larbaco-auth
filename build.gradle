@@ -127,7 +127,6 @@ dependencies {
 
     // Example mod dependency using a file as dependency
     // implementation files("libs/coolmod-${mc_version}-${coolmod_version}.jar")
-
     // Example project dependency using a sister or child project:
     // implementation project(":myproject")
 
@@ -181,7 +180,7 @@ publishing {
 curseforge {
     apiKey = project.findProperty("curseforge_key") ?: System.getenv("CURSEFORGE_KEY")
 
-     project {
+    project {
         id = "1242580"
         changelogType = "markdown"
         changelog = file("CHANGELOG.md")

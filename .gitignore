@@ -41,5 +41,8 @@ curseforge_api_key
 /run/
 /.idea/
 /.gradle/
-/.build/*
+/.build/
 userdev-7.0.184.jar
+/.gitattributes
+/Test_Server/
+/build/
