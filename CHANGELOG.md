@@ -9,3 +9,5 @@
 - Improve the translation class and messages
 - basic config files
 - basic data management
+## Version 1.0.0-alpha.5
+- implement admin commands
