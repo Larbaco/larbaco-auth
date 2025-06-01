@@ -101,7 +101,7 @@ configurations {
 
 dependencies {
     implementation 'org.mindrot:jbcrypt:0.4'
-
+    implementation 'com.google.code.gson:gson:2.10.1'
     jarJar(group: 'org.mindrot', name: 'jbcrypt', version: '0.4') {
         transitive = false
     }

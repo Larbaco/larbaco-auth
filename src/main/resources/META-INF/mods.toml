@@ -5,7 +5,7 @@ license="GPL-3.0"      # Must match gradle.properties
 
 [[mods]]
 modId="larbaco_auth"
-version="1.0.0-alpha.1"
+version="1.0.0-alpha.4"
 displayName="Larbaco Auth"
 authors="Larbaco"
 displayURL="https://larbaco.com/larbaco_auth"

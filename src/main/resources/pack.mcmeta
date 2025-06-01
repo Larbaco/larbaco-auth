@@ -2,5 +2,17 @@
   "pack": {
     "pack_format": 22,
     "description": "Larbaco Auth - Server Security System"
+  },
+  "language": {
+    "en_us": {
+      "name": "English (US)",
+      "region": "United States",
+      "bidirectional": false
+    },
+    "pt_br": {
+      "name": "Português (Brasil)",
+      "region": "Brasil",
+      "bidirectional": false
+    }
   }
 }

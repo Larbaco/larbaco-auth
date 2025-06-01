@@ -1,95 +1,161 @@
-/*
- * Copyright (C) 2025 Larbaco
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
- *
- */
-
 package com.larbaco.larbaco_auth.commands;
 
 import com.larbaco.larbaco_auth.Config;
 import com.larbaco.larbaco_auth.LarbacoAuthMain;
+import com.larbaco.larbaco_auth.handlers.AuthSessionManager;
+import com.larbaco.larbaco_auth.storage.DataManager;
+import com.larbaco.larbaco_auth.utils.MessageHelper;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
-import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import org.mindrot.jbcrypt.BCrypt;
 
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class RegisterCommand {
-    // Temporary storage until SQLite is implemented
-    private static final Map<UUID, String> registeredPlayers = new ConcurrentHashMap<>();
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("register")
-                .requires(source -> source.hasPermission(0)) // Allow non-OP usage
-                .then(Commands.argument("password", StringArgumentType.greedyString())
+                .requires(source -> source.hasPermission(0))
+                .then(Commands.argument("token", StringArgumentType.word())
                         .executes(context -> {
                             ServerPlayer player = context.getSource().getPlayerOrException();
-                            String password = StringArgumentType.getString(context, "password");
-                            return handleRegistration(player, password);
+                            String token = StringArgumentType.getString(context, "token");
+                            return processRegistration(player, token);
                         })
                 )
+                .executes(context -> {
+                    ServerPlayer player = context.getSource().getPlayerOrException();
+                    return initiateRegistration(player);
+                })
         );
     }
 
-    private static int handleRegistration(ServerPlayer player, String password) {
+    private static int initiateRegistration(ServerPlayer player) {
         UUID uuid = player.getUUID();
-
-        if (registeredPlayers.containsKey(uuid)) {
-            player.sendSystemMessage(Component.translatable("command.register.already_registered"));
+        if (isRegistered(uuid)) {
+            MessageHelper.sendError(player, "command.larbaco_auth.register.already_registered");
             return 0;
         }
-
-        if (!validatePassword(password)) {
-            player.sendSystemMessage(Component.translatable("command.register.invalid_password"));
-            return 0;
+        String requirements = getPasswordRequirements();
+        if (!requirements.isEmpty()) {
+            MessageHelper.sendInfo(player, "command.larbaco_auth.register.requirements", requirements);
         }
-
-        String hashed = BCrypt.hashpw(password, BCrypt.gensalt());
-        registeredPlayers.put(uuid, hashed);
-        player.sendSystemMessage(Component.translatable("command.register.success"));
+        AuthSessionManager.setPendingOperation(uuid, AuthSessionManager.OperationType.REGISTER);
+        MessageHelper.sendInfo(player, "command.larbaco_auth.register.enter_password");
         return Command.SINGLE_SUCCESS;
     }
 
+    private static int processRegistration(ServerPlayer player, String token) {
+        AuthSessionManager.SessionData session = AuthSessionManager.validateSession(token);
+        UUID uuid = player.getUUID();
+        if (session == null) {
+            MessageHelper.sendError(player, "command.larbaco_auth.register.invalid_token");
+            return 0;
+        }
+        if (!session.getPlayerId().equals(uuid)) {
+            MessageHelper.sendError(player, "command.larbaco_auth.register.token_mismatch");
+            return 0;
+        }
+        try {
+            String password = session.getPassword();
+            return handlePasswordRegistration(player, password);
+        } catch (Exception e) {
+            LarbacoAuthMain.LOGGER.error("Error processing registration for {}: {}", player.getScoreboardName(), e.getMessage());
+            MessageHelper.sendError(player, "command.larbaco_auth.register.error");
+            return 0;
+        }
+    }
+
+    private static int handlePasswordRegistration(ServerPlayer player, String password) {
+        UUID uuid = player.getUUID();
+        if (isRegistered(uuid)) {
+            MessageHelper.sendError(player, "command.larbaco_auth.register.already_registered");
+            return 0;
+        }
+        if (!validatePassword(password)) {
+            String requirements = getPasswordRequirements();
+            MessageHelper.sendError(player, "command.larbaco_auth.register.invalid_password", requirements);
+            return 0;
+        }
+        try {
+            String hashed = BCrypt.hashpw(password, BCrypt.gensalt(12));
+            DataManager.registerPlayer(uuid, hashed);
+            MessageHelper.sendSuccess(player, "command.larbaco_auth.register.success");
+            LarbacoAuthMain.LOGGER.info("Player {} registered successfully", player.getName().getString());
+            return Command.SINGLE_SUCCESS;
+        } catch (Exception e) {
+            LarbacoAuthMain.LOGGER.error("Error during password hashing for player {}: {}", player.getName().getString(), e.getMessage());
+            MessageHelper.sendError(player, "command.larbaco_auth.register.error");
+            return 0;
+        }
+    }
+
     private static boolean validatePassword(String password) {
-        boolean valid = true;
-
+        if (password == null || password.trim().isEmpty()) return false;
+        if (password.length() < 6) return false;
         if (Config.requireMixedCase) {
-            valid &= !password.equals(password.toLowerCase()) &&
-                    !password.equals(password.toUpperCase());
+            boolean hasUpper = !password.equals(password.toLowerCase());
+            boolean hasLower = !password.equals(password.toUpperCase());
+            if (!(hasUpper && hasLower)) return false;
         }
-
         if (Config.requireSpecialChar) {
-            valid &= password.matches(".*[!@#$%^&*()_+\\-=\\[\\]{};':\"\\\\|,.<>\\/?].*");
+            if (!password.matches(".*[!@#$%^&*()_+\\-=\\[\\]{};':\"\\\\|,.<>\\/?].*")) return false;
         }
+        return true;
+    }
 
-        return valid;
+    private static String getPasswordRequirements() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("at least 6 characters");
+        if (Config.requireMixedCase) {
+            sb.append(", mixed case letters");
+        }
+        if (Config.requireSpecialChar) {
+            sb.append(", at least one special character (!@#$%^&*()_+-=[]{}|;':\"\\,.<>?/)");
+        }
+        return sb.toString();
     }
 
     public static boolean isRegistered(UUID uuid) {
-        return registeredPlayers.containsKey(uuid);
+        return DataManager.isPlayerRegistered(uuid);
     }
 
     public static boolean verifyPassword(UUID uuid, String password) {
-        String hash = registeredPlayers.get(uuid);
-        return hash != null && BCrypt.checkpw(password, hash);
+        String hash = DataManager.getPlayerPasswordHash(uuid);
+        if (hash == null || password == null) return false;
+        try {
+            return BCrypt.checkpw(password, hash);
+        } catch (Exception e) {
+            LarbacoAuthMain.LOGGER.error("Error during password verification for UUID {}: {}", uuid, e.getMessage());
+            return false;
+        }
+    }
+
+    public static int getRegisteredPlayerCount() {
+        return DataManager.getRegisteredPlayerCount();
+    }
+
+    public static boolean unregisterPlayer(UUID uuid) {
+        if (!isRegistered(uuid)) return false;
+        DataManager.unregisterPlayer(uuid);
+        LarbacoAuthMain.LOGGER.info("Player unregistered: {}", uuid);
+        return true;
+    }
+
+    public static boolean changePassword(UUID uuid, String newPassword) {
+        if (!isRegistered(uuid) || !validatePassword(newPassword)) return false;
+        try {
+            String hashed = BCrypt.hashpw(newPassword, BCrypt.gensalt(12));
+            DataManager.registerPlayer(uuid, hashed);
+            LarbacoAuthMain.LOGGER.info("Password changed for UUID: {}", uuid);
+            return true;
+        } catch (Exception e) {
+            LarbacoAuthMain.LOGGER.error("Error changing password for UUID {}: {}", uuid, e.getMessage());
+            return false;
+        }
     }
 }
