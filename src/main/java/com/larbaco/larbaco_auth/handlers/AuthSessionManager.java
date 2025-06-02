@@ -55,9 +55,63 @@ public class AuthSessionManager {
             AuthLogger.logSystemEvent("SESSION_MANAGER_INIT", "Session manager initialized successfully");
 
         } catch (Exception e) {
-            SystemMonitor.updateComponentHealth("SessionManager", false, e.getMessage());
-            LarbacoAuthMain.LOGGER.error("Failed to initialize AuthSessionManager: {}", e.getMessage(), e);
-            throw new RuntimeException("AuthSessionManager initialization failed", e);
+            throw new RuntimeException(e);
+        }
+    }
+    /**
+     * Get session data without removing it from the store (for validation purposes)
+     * This allows checking if a token is valid before consuming it
+     */
+    public static SessionData getSessionWithoutValidation(String token) {
+        if (!initialized || token == null) {
+            return null;
+        }
+
+        SessionData data = sessions.get(token);
+        if (data != null && !data.isExpired()) {
+            LarbacoAuthMain.LOGGER.debug("Session found and valid for token: {}",
+                    token.substring(0, Math.min(4, token.length())) + "...");
+            return data;
+        }
+
+        if (data != null && data.isExpired()) {
+            // Remove expired session but don't count it as validated
+            sessions.remove(token);
+            totalSessionsExpired.incrementAndGet();
+            SystemMonitor.recordSessionExpired();
+
+            LarbacoAuthMain.LOGGER.debug("Expired session found and removed for token: {}",
+                    token.substring(0, Math.min(4, token.length())) + "...");
+        }
+
+        return null;
+    }
+    /**
+     * Create a new session from existing session data (for token re-use in /auth command)
+     */
+    public static String createSessionFromExisting(SessionData existingSession) {
+        if (!initialized) {
+            LarbacoAuthMain.LOGGER.error("Attempted to create session before initialization");
+            return null;
+        }
+
+        String token = generateToken();
+
+        try {
+            sessions.put(token, new SessionData(
+                    existingSession.getPlayerId(),
+                    existingSession.getEncryptedPassword(),
+                    existingSession.getOperation()
+            ));
+
+            LarbacoAuthMain.LOGGER.debug("Created session from existing data for player {} with operation {}",
+                    existingSession.getPlayerId(), existingSession.getOperation());
+
+            return token;
+
+        } catch (Exception e) {
+            LarbacoAuthMain.LOGGER.error("Error creating session from existing data: {}", e.getMessage(), e);
+            return null;
         }
     }
 
@@ -400,6 +454,10 @@ public class AuthSessionManager {
             return operation;
         }
 
+        public String getEncryptedPassword() {
+            return encryptedPassword;
+        }
+
         public boolean isExpired() {
             return (System.currentTimeMillis() - creationTime) > 30000; // 30 seconds
         }
@@ -415,7 +473,8 @@ public class AuthSessionManager {
 
     public enum OperationType {
         LOGIN,
-        REGISTER
+        REGISTER,
+        CHANGE_PASSWORD
     }
 
     public record SessionStatistics(

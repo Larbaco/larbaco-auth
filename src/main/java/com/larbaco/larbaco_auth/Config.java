@@ -336,4 +336,8 @@ public class Config {
             LarbacoAuthMain.LOGGER.error("Failed to create default configuration: {}", e.getMessage(), e);
         }
     }
+
+    public static boolean getBoolean(String s, boolean b) {
+        return false;
+    }
 }

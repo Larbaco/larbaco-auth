@@ -1,79 +1,320 @@
+/*
+ * Copyright (C) 2025 Larbaco
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ */
+
 package com.larbaco.larbaco_auth;
 
-import com.larbaco.larbaco_auth.commands.AuthAdminCommand;
-import com.larbaco.larbaco_auth.commands.AuthCommand;
-import com.larbaco.larbaco_auth.commands.LoginCommand;
-import com.larbaco.larbaco_auth.commands.RegisterCommand;
+import com.google.gson.Gson;
+import com.larbaco.larbaco_auth.commands.*;
 import com.larbaco.larbaco_auth.monitoring.AuthLogger;
 import com.larbaco.larbaco_auth.monitoring.SystemMonitor;
-import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
+import com.larbaco.larbaco_auth.storage.TranslationTemplateManager;
+import com.mojang.logging.LogUtils;
+import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
-import org.slf4j.Logger;
-import com.mojang.logging.LogUtils;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
+import org.slf4j.Logger;
 
-import java.io.FileReader;
-import java.lang.reflect.Type;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
+/**
+ * Main class for LarbacoAuth - handles mod initialization, authentication state,
+ * and system lifecycle management.
+ *
+ * Thread-safe and follows proper shutdown procedures.
+ */
 @Mod(LarbacoAuthMain.MODID)
 public class LarbacoAuthMain {
     public static final String MODID = "larbaco_auth";
     public static final Logger LOGGER = LogUtils.getLogger();
 
+    // Mod metadata
+    private static final String MOD_VERSION = "1.0.0";
+    private static final long STARTUP_TIME = System.currentTimeMillis();
+
+    // Core state management
     private static final Set<UUID> authenticatedPlayers = ConcurrentHashMap.newKeySet();
+    private static final AtomicBoolean initialized = new AtomicBoolean(false);
+    private static final AtomicBoolean shutdownInProgress = new AtomicBoolean(false);
+
+    // Translation management
     private static final Map<String, String> translations = new ConcurrentHashMap<>();
     private static final Gson gson = new Gson();
     private static String currentLanguage = "en_us";
-    private static volatile boolean isInitialized = false;
 
-    // Version and system information
-    private static final String MOD_VERSION = "1.0.0";
-    private static final long startupTime = System.currentTimeMillis();
+    /**
+     * Mod constructor - sets up event listeners and configuration
+     */
+    public LarbacoAuthMain(IEventBus modEventBus, ModContainer modContainer) {
+        try {
+            // Register configuration
+            modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
 
-    public static boolean isPlayerAuthenticated(UUID uuid) {
-        return authenticatedPlayers.contains(uuid);
-    }
+            // Register mod lifecycle events
+            modEventBus.addListener(this::onModSetup);
 
-    public static void setAuthenticated(UUID uuid, boolean status) {
-        if(status) {
-            boolean wasAdded = authenticatedPlayers.add(uuid);
-            if (wasAdded) {
-                LOGGER.debug("Player {} authenticated successfully", uuid);
-                SystemMonitor.recordLoginAttempt(true);
+            // Register server events
+            NeoForge.EVENT_BUS.addListener(this::registerCommands);
+            NeoForge.EVENT_BUS.addListener(LarbacoAuthMain::onServerStarting);
+            NeoForge.EVENT_BUS.addListener(LarbacoAuthMain::onServerStopping);
 
-                // Log authentication event
-                try {
-                    String playerName = getPlayerNameFromUUID(uuid);
-                    AuthLogger.logAuthEvent(uuid, playerName, "LOGIN_SUCCESS", "Player authenticated successfully");
-                } catch (Exception e) {
-                    LOGGER.debug("Could not log auth event for UUID {}: {}", uuid, e.getMessage());
-                }
-            }
-        } else {
-            boolean wasRemoved = authenticatedPlayers.remove(uuid);
-            LOGGER.debug("Player {} deauthenticated (was authenticated: {})", uuid, wasRemoved);
+            LOGGER.info("LarbacoAuth v{} constructor completed", MOD_VERSION);
+
+        } catch (Exception e) {
+            LOGGER.error("Failed to initialize LarbacoAuth: {}", e.getMessage(), e);
+            throw new RuntimeException("LarbacoAuth initialization failed", e);
         }
     }
+
+    // ==================== MOD LIFECYCLE ====================
+
+    /**
+     * Mod setup phase - initializes core systems
+     */
+    private void onModSetup(final FMLCommonSetupEvent event) {
+        event.enqueueWork(() -> {
+            LOGGER.info("Starting LarbacoAuth initialization...");
+
+            try {
+                validateConfiguration();
+                initializeCoreComponents();
+                initializeMonitoringSystems();
+
+                initialized.set(true);
+                logSuccessfulInitialization();
+
+            } catch (Exception e) {
+                handleInitializationFailure(e);
+            }
+        });
+    }
+
+    private void validateConfiguration() {
+        if (Config.SPEC == null) {
+            throw new IllegalStateException("Configuration not properly loaded");
+        }
+
+        if (!Config.validate()) {
+            throw new IllegalStateException("Configuration validation failed");
+        }
+    }
+
+    private void initializeCoreComponents() {
+        loadTranslations();
+
+        // Create language template files if they don't exist
+        String langDir = "config/" + MODID + "/lang";
+        try {
+            java.nio.file.Files.createDirectories(java.nio.file.Paths.get(langDir));
+            TranslationTemplateManager.createLanguageFiles(langDir);
+        } catch (Exception e) {
+            LOGGER.warn("Could not create language template files: {}", e.getMessage());
+        }
+
+        com.larbaco.larbaco_auth.storage.DataManager.initialize();
+    }
+
+    private void initializeMonitoringSystems() {
+        AuthLogger.initialize();
+
+        // Clean up any corrupted log files from previous runs
+        try {
+            AuthLogger.cleanupCorruptedLogFile();
+        } catch (Exception e) {
+            LOGGER.warn("Could not clean up corrupted log file: {}", e.getMessage());
+        }
+
+        SystemMonitor.updateComponentHealth("Authentication", true, null);
+    }
+
+    private void logSuccessfulInitialization() {
+        LOGGER.info("LarbacoAuth v{} initialized successfully", MOD_VERSION);
+        AuthLogger.logSystemEvent("MOD_INITIALIZED",
+                String.format("LarbacoAuth v%s initialized successfully", MOD_VERSION));
+    }
+
+    private void handleInitializationFailure(Exception e) {
+        LOGGER.error("LarbacoAuth initialization failed: {}", e.getMessage(), e);
+        SystemMonitor.updateComponentHealth("Authentication", false, e.getMessage());
+        throw new RuntimeException("Mod setup failed", e);
+    }
+
+    // ==================== SERVER LIFECYCLE ====================
+
+    @SubscribeEvent
+    public static void onServerStarting(ServerStartingEvent event) {
+        if (!initialized.get()) {
+            LOGGER.warn("Server starting but LarbacoAuth not fully initialized!");
+            return;
+        }
+
+        try {
+            startMonitoringIfEnabled();
+            logServerStartup();
+
+        } catch (Exception e) {
+            LOGGER.error("Error during server startup: {}", e.getMessage(), e);
+            SystemMonitor.updateComponentHealth("Authentication", false,
+                    "Server startup error: " + e.getMessage());
+        }
+    }
+
+    private static void startMonitoringIfEnabled() {
+        if (Config.enableMonitoring) {
+            SystemMonitor.startRealTimeMonitoring();
+            LOGGER.info("Real-time monitoring started");
+        }
+    }
+
+    private static void logServerStartup() {
+        LOGGER.info("Authentication system ready - Max login attempts: {}", Config.maxLoginAttempts);
+        AuthLogger.logSystemEvent("SERVER_STARTING",
+                String.format("Server starting with LarbacoAuth v%s, max attempts: %d",
+                        MOD_VERSION, Config.maxLoginAttempts));
+    }
+
+    @SubscribeEvent
+    public static void onServerStopping(ServerStoppingEvent event) {
+        if (!shutdownInProgress.compareAndSet(false, true)) {
+            return; // Already shutting down
+        }
+
+        LOGGER.info("LarbacoAuth shutdown initiated...");
+
+        try {
+            AuthLogger.logSystemEvent("SERVER_STOPPING", "LarbacoAuth shutdown initiated");
+
+            shutdownComponentsInOrder();
+
+            LOGGER.info("LarbacoAuth shutdown completed successfully");
+
+        } catch (Exception e) {
+            LOGGER.error("Error during LarbacoAuth shutdown: {}", e.getMessage(), e);
+        }
+    }
+
+    private static void shutdownComponentsInOrder() {
+        // Phase 1: Stop monitoring
+        shutdownComponent("SystemMonitor", () -> SystemMonitor.shutdown());
+
+        // Phase 2: Session management
+        shutdownComponent("AuthSessionManager",
+                () -> com.larbaco.larbaco_auth.handlers.AuthSessionManager.shutdown());
+
+        // Phase 3: Data persistence
+        shutdownComponent("DataManager",
+                () -> com.larbaco.larbaco_auth.storage.DataManager.shutdown());
+
+        // Phase 4: Clean up memory
+        shutdownComponent("Cleanup", LarbacoAuthMain::cleanup);
+
+        // Phase 5: Logger (last)
+        shutdownComponent("AuthLogger", () -> AuthLogger.shutdown());
+    }
+
+    private static void shutdownComponent(String componentName, Runnable shutdownTask) {
+        try {
+            shutdownTask.run();
+            LOGGER.debug("✅ {} shutdown completed", componentName);
+        } catch (Exception e) {
+            LOGGER.error("❌ Error shutting down {}: {}", componentName, e.getMessage(), e);
+        }
+    }
+
+    // ==================== AUTHENTICATION MANAGEMENT ====================
+
+    /**
+     * Check if a player is authenticated
+     */
+    public static boolean isPlayerAuthenticated(UUID uuid) {
+        return uuid != null && authenticatedPlayers.contains(uuid);
+    }
+
+    /**
+     * Set player authentication status with proper logging and monitoring
+     */
+    public static void setAuthenticated(UUID uuid, boolean status) {
+        if (uuid == null || shutdownInProgress.get()) {
+            return;
+        }
+
+        if (status) {
+            handleAuthentication(uuid);
+        } else {
+            handleDeauthentication(uuid);
+        }
+    }
+
+    private static void handleAuthentication(UUID uuid) {
+        boolean wasAdded = authenticatedPlayers.add(uuid);
+        if (wasAdded) {
+            LOGGER.debug("Player {} authenticated successfully", uuid);
+            SystemMonitor.recordLoginAttempt(true);
+
+            /*try {
+                String playerName = getPlayerNameFromUUID(uuid);
+                AuthLogger.logAuthEvent(uuid, playerName, "LOGIN_SUCCESS", "Player authenticated successfully");
+            } catch (Exception e) {
+                LOGGER.debug("Could not log auth event for {}: {}", uuid, e.getMessage());
+            }*/
+        }
+    }
+
+    private static void handleDeauthentication(UUID uuid) {
+        boolean wasRemoved = authenticatedPlayers.remove(uuid);
+        LOGGER.debug("Player {} deauthenticated (was authenticated: {})", uuid, wasRemoved);
+    }
+
+    /**
+     * Force authentication status update (for admin commands)
+     */
+    public static void forceSetAuthenticated(UUID uuid, boolean status) {
+        if (uuid == null || shutdownInProgress.get()) {
+            return;
+        }
+
+        if (status) {
+            authenticatedPlayers.add(uuid);
+        } else {
+            authenticatedPlayers.remove(uuid);
+        }
+
+        LOGGER.info("Force authentication status update: {} -> {}", uuid, status);
+
+        String action = status ? "FORCE_AUTHENTICATE" : "FORCE_DEAUTHENTICATE";
+        AuthLogger.logAuthEvent(uuid, getPlayerNameFromUUID(uuid), action,
+                "Authentication status force-updated by admin");
+    }
+
+    // ==================== SYSTEM INFORMATION ====================
 
     public static int getAuthenticatedPlayerCount() {
         return authenticatedPlayers.size();
@@ -83,20 +324,30 @@ public class LarbacoAuthMain {
         return !authenticatedPlayers.isEmpty();
     }
 
-    public static boolean isInitialized() {
-        return isInitialized;
+    public static Set<UUID> getAuthenticatedPlayers() {
+        return Set.copyOf(authenticatedPlayers);
     }
 
-    /**
-     * Get mod version
-     */
+    public static boolean isInitialized() {
+        return initialized.get() && !shutdownInProgress.get();
+    }
+
+    public static boolean isShuttingDown() {
+        return shutdownInProgress.get();
+    }
+
+    public static boolean isSystemHealthy() {
+        return isInitialized() &&
+                com.larbaco.larbaco_auth.handlers.AuthSessionManager.isHealthy() &&
+                Config.validate();
+    }
+
+    // ==================== VERSION INFORMATION ====================
+
     public static String getVersion() {
         return MOD_VERSION;
     }
 
-    /**
-     * Get NeoForge version
-     */
     public static String getNeoForgeVersion() {
         try {
             return net.neoforged.fml.loading.FMLLoader.getLoadingModList()
@@ -107,9 +358,6 @@ public class LarbacoAuthMain {
         }
     }
 
-    /**
-     * Get Minecraft version
-     */
     public static String getMinecraftVersion() {
         try {
             return net.minecraft.SharedConstants.getCurrentVersion().getName();
@@ -118,32 +366,23 @@ public class LarbacoAuthMain {
         }
     }
 
-    /**
-     * Get current log level
-     */
     public static String getLogLevel() {
         return LOGGER.isDebugEnabled() ? "DEBUG" :
                 LOGGER.isInfoEnabled() ? "INFO" :
                         LOGGER.isWarnEnabled() ? "WARN" : "ERROR";
     }
 
-    /**
-     * Get system uptime in milliseconds
-     */
     public static long getUptimeMillis() {
-        return System.currentTimeMillis() - startupTime;
+        return System.currentTimeMillis() - STARTUP_TIME;
     }
 
-    /**
-     * Helper method to get player name from UUID (best effort)
-     */
-    private static String getPlayerNameFromUUID(UUID uuid) {
-        // This is a simplified version - in a real implementation,
-        // you might want to cache player names or look them up from the server
-        return uuid.toString().substring(0, 8);
-    }
+    // ==================== TRANSLATION MANAGEMENT ====================
 
     public static String getTranslation(String key, Object... args) {
+        if (shutdownInProgress.get()) {
+            return key; // Return key during shutdown
+        }
+
         String translation = translations.get(key);
         if (translation == null) {
             LOGGER.warn("Missing translation for key: {} in language: {}", key, currentLanguage);
@@ -163,159 +402,29 @@ public class LarbacoAuthMain {
         return currentLanguage;
     }
 
-    public LarbacoAuthMain(IEventBus modEventBus, ModContainer modContainer) {
-        try {
-            modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
-
-            modEventBus.addListener(this::onModSetup);
-
-            NeoForge.EVENT_BUS.addListener(this::registerCommands);
-            NeoForge.EVENT_BUS.addListener(LarbacoAuthMain::onServerStarting);
-            NeoForge.EVENT_BUS.addListener(LarbacoAuthMain::onServerStopping);
-
-            LOGGER.info("Larbaco Auth initialized");
-
-        } catch (Exception e) {
-            LOGGER.error("Failed to initialize Larbaco Auth: {}", e.getMessage(), e);
-            throw new RuntimeException("Larbaco Auth initialization failed", e);
-        }
-    }
-
-    private void onModSetup(final FMLCommonSetupEvent event) {
-        event.enqueueWork(() -> {
-            LOGGER.info("=== MOD SETUP PHASE ===");
-
-            if (Config.SPEC == null) {
-                LOGGER.error("Configuration not properly loaded!");
-                return;
-            }
-
-            try {
-                // Initialize core systems
-                loadTranslations();
-                com.larbaco.larbaco_auth.storage.DataManager.initialize();
-
-                // Initialize monitoring systems
-                AuthLogger.initialize();
-                SystemMonitor.updateComponentHealth("Authentication", true, null);
-
-                isInitialized = true;
-                LOGGER.info("Larbaco Auth common setup completed successfully");
-
-                // Log system initialization
-                AuthLogger.logSystemEvent("MOD_INITIALIZED",
-                        String.format("LarbacoAuth v%s initialized successfully", getVersion()));
-
-            } catch (Exception e) {
-                LOGGER.error("Error during mod setup: {}", e.getMessage(), e);
-                SystemMonitor.updateComponentHealth("Authentication", false, e.getMessage());
-                throw new RuntimeException("Mod setup failed", e);
-            }
-
-            LOGGER.info("======================");
-        });
-    }
-
-    private void debugResourceLoading() {
-        LOGGER.info("=== RESOURCE LOADING DEBUG ===");
-
-        String[] langFiles = {"en_us.json", "pt_br.json"};
-
-        for (String langFile : langFiles) {
-            String resourcePath = "/assets/" + MODID + "/lang/" + langFile;
-            LOGGER.info("Checking resource: {}", resourcePath);
-
-            try {
-                var resource = getClass().getResourceAsStream(resourcePath);
-                if (resource != null) {
-                    LOGGER.info("✅ Found language file: {}", langFile);
-                    resource.close();
-                } else {
-                    LOGGER.error("❌ Language file NOT FOUND: {}", langFile);
-                }
-            } catch (Exception e) {
-                LOGGER.error("❌ Error checking language file {}: {}", langFile, e.getMessage());
-            }
-        }
-
-        try {
-            var modResource = getClass().getResource("/assets/" + MODID + "/");
-            if (modResource != null) {
-                LOGGER.info("✅ Mod assets directory found: {}", modResource);
-            } else {
-                LOGGER.error("❌ Mod assets directory NOT FOUND: /assets/{}/", MODID);
-            }
-        } catch (Exception e) {
-            LOGGER.error("❌ Error checking mod assets: {}", e.getMessage());
-        }
-
-        LOGGER.info("===============================");
-    }
-
-    private void registerLanguageProviders() {
-        LOGGER.info("=== REGISTERING LANGUAGE PROVIDERS ===");
-
-        try {
-            LOGGER.info("Attempting to register language providers for mod: {}", MODID);
-
-            registerTranslations();
-
-            LOGGER.info("Language provider registration completed");
-        } catch (Exception e) {
-            LOGGER.error("Failed to register language providers: {}", e.getMessage(), e);
-        }
-
-        LOGGER.info("=====================================");
-    }
-
-    private void registerTranslations() {
-        LOGGER.info("Manual translation registration starting...");
-
-        String[] langCodes = {"en_us", "pt_br"};
-
-        for (String langCode : langCodes) {
-            try {
-                String resourcePath = "/assets/" + MODID + "/lang/" + langCode + ".json";
-                var inputStream = getClass().getResourceAsStream(resourcePath);
-
-                if (inputStream != null) {
-                    String content = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-                    LOGGER.info("Language file {} content length: {} characters", langCode, content.length());
-                    LOGGER.info("First 100 chars of {}: {}", langCode, content.substring(0, Math.min(100, content.length())));
-
-                    if (content.contains("command.larbaco_auth.register.prompt")) {
-                        LOGGER.info("✅ {} contains required translation keys", langCode);
-                    } else {
-                        LOGGER.warn("❌ {} missing required translation keys", langCode);
-                    }
-
-                    inputStream.close();
-                }
-            } catch (Exception e) {
-                LOGGER.error("Error reading language file {}: {}", langCode, e.getMessage());
-            }
-        }
-    }
-
     public static void loadTranslations() {
-        LOGGER.debug("=== MANUAL TRANSLATION LOADING ===");
+        if (shutdownInProgress.get()) {
+            return;
+        }
 
-        Locale systemLocale = Locale.getDefault();
+        LOGGER.debug("Loading translations...");
+
+        java.util.Locale systemLocale = java.util.Locale.getDefault();
         String langCode = systemLocale.getLanguage().equals("pt") ? "pt_br" : "en_us";
         currentLanguage = langCode;
 
         LOGGER.debug("Loading language: {} (system locale: {})", langCode, systemLocale);
 
-        String configPath = "config/larbaco_auth/lang/" + langCode + ".json";
+        String configPath = "config/" + MODID + "/lang/" + langCode + ".json";
         String resourcePath = "/assets/" + MODID + "/lang/" + langCode + ".json";
 
         if (loadTranslationsFromFile(configPath)) {
-            LOGGER.debug("✅ Loaded translations from config file");
+            LOGGER.debug("Loaded translations from config file");
             return;
         }
 
         if (loadTranslationsFromResource(resourcePath)) {
-            LOGGER.debug("✅ Loaded translations from mod resources");
+            LOGGER.debug("Loaded translations from mod resources");
             return;
         }
 
@@ -324,8 +433,6 @@ public class LarbacoAuthMain {
             currentLanguage = "en_us";
             loadTranslations();
         }
-
-        LOGGER.debug("==================================");
     }
 
     private static boolean loadTranslationsFromFile(String filePath) {
@@ -334,13 +441,14 @@ public class LarbacoAuthMain {
             if (!java.nio.file.Files.exists(path)) return false;
 
             try (java.io.FileReader reader = new java.io.FileReader(path.toFile())) {
-                TypeToken<Map<String, String>> typeToken = new TypeToken<Map<String, String>>() {};
-                Map<String, String> langMap = gson.fromJson(reader, typeToken.getType());
+                com.google.gson.reflect.TypeToken<java.util.Map<String, String>> typeToken =
+                        new com.google.gson.reflect.TypeToken<java.util.Map<String, String>>() {};
+                java.util.Map<String, String> langMap = gson.fromJson(reader, typeToken.getType());
 
                 if (langMap != null) {
                     translations.clear();
                     translations.putAll(langMap);
-                    LOGGER.debug("✅ Loaded {} translations from config file", translations.size());
+                    LOGGER.debug("Loaded {} translations from config file", translations.size());
                     return true;
                 }
             }
@@ -355,14 +463,15 @@ public class LarbacoAuthMain {
             var inputStream = LarbacoAuthMain.class.getResourceAsStream(resourcePath);
             if (inputStream == null) return false;
 
-            String content = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-            TypeToken<Map<String, String>> typeToken = new TypeToken<Map<String, String>>() {};
-            Map<String, String> langMap = gson.fromJson(content, typeToken.getType());
+            String content = new String(inputStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            com.google.gson.reflect.TypeToken<java.util.Map<String, String>> typeToken =
+                    new com.google.gson.reflect.TypeToken<java.util.Map<String, String>>() {};
+            java.util.Map<String, String> langMap = gson.fromJson(content, typeToken.getType());
 
             if (langMap != null) {
                 translations.clear();
                 translations.putAll(langMap);
-                LOGGER.debug("✅ Loaded {} translations from mod resources", translations.size());
+                LOGGER.debug("Loaded {} translations from mod resources", translations.size());
                 inputStream.close();
                 return true;
             }
@@ -373,161 +482,64 @@ public class LarbacoAuthMain {
         return false;
     }
 
-    private void testManualTranslationSystem() {
-        LOGGER.info("=== TESTING MANUAL TRANSLATION ===");
-        String testKey = "command.larbaco_auth.register.prompt";
-        String manualResult = getTranslation(testKey);
-        LOGGER.info("Manual translation test: {} -> '{}'", testKey, manualResult);
+    // ==================== COMMAND REGISTRATION ====================
 
-        if (manualResult.contains("Bem-vindo")) {
-            LOGGER.info("✅ Manual Portuguese translation working!");
-        } else if (manualResult.contains("Welcome")) {
-            LOGGER.info("✅ Manual English translation working!");
-        } else {
-            LOGGER.warn("❌ Manual translation not working properly");
-        }
-        LOGGER.info("=================================");
-    }
-
-    @SubscribeEvent
-    public static void onServerStarting(ServerStartingEvent event) {
-        try {
-            if (!isInitialized) {
-                LOGGER.warn("Server starting but mod not fully initialized!");
-                return;
-            }
-
-            // Start monitoring if enabled
-            if (Config.enableMonitoring) {
-                SystemMonitor.startRealTimeMonitoring();
-                LOGGER.info("Real-time monitoring started (enabled in config)");
-            }
-
-            int maxAttempts = Config.maxLoginAttempts;
-            LOGGER.info("Authentication system ready - Max login attempts: {}", maxAttempts);
-
-            AuthLogger.logSystemEvent("SERVER_STARTING",
-                    String.format("Server starting with LarbacoAuth v%s, max attempts: %d", getVersion(), maxAttempts));
-
-        } catch (Exception e) {
-            LOGGER.error("Error during server startup: {}", e.getMessage(), e);
-            SystemMonitor.updateComponentHealth("Authentication", false, "Server startup error: " + e.getMessage());
-        }
-    }
-
-    @SubscribeEvent
-    public static void onServerStopping(ServerStoppingEvent event) {
-        try {
-            LOGGER.info("Server stopping - shutting down LarbacoAuth systems...");
-
-            // Stop monitoring
-            SystemMonitor.stopRealTimeMonitoring();
-
-            // Shutdown session manager
-            com.larbaco.larbaco_auth.handlers.AuthSessionManager.shutdown();
-
-            // Shutdown logger
-            AuthLogger.shutdown();
-
-            // Final cleanup
-            cleanup();
-
-            AuthLogger.logSystemEvent("SERVER_STOPPING", "LarbacoAuth systems shutdown completed");
-
-        } catch (Exception e) {
-            LOGGER.error("Error during server shutdown: {}", e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Enhanced command registration that includes admin commands
-     */
     private void registerCommands(RegisterCommandsEvent event) {
         try {
-            RegisterCommand.register(event.getDispatcher());
-            LoginCommand.register(event.getDispatcher());
-            AuthCommand.register(event.getDispatcher());
+            var dispatcher = event.getDispatcher();
 
-            // Register administrative commands
-            AuthAdminCommand.register(event.getDispatcher());
+            // Core authentication commands
+            RegisterCommand.register(dispatcher);
+            LoginCommand.register(dispatcher);
+            AuthCommand.register(dispatcher);
 
-            LOGGER.debug("All authentication commands registered successfully (including admin commands)");
+            // User management commands
+            ChangePasswordCommand.register(dispatcher);
+            DisconnectCommand.register(dispatcher);
 
+            // Administrative commands
+            AuthAdminCommand.register(dispatcher);
+
+            LOGGER.debug("All authentication commands registered successfully");
             AuthLogger.logSystemEvent("COMMANDS_REGISTERED", "All authentication commands registered");
 
         } catch (Exception e) {
             LOGGER.error("Failed to register commands: {}", e.getMessage(), e);
-            SystemMonitor.updateComponentHealth("Authentication", false, "Command registration failed: " + e.getMessage());
+            SystemMonitor.updateComponentHealth("Authentication", false,
+                    "Command registration failed: " + e.getMessage());
         }
     }
+
+    // ==================== CLIENT EVENTS ====================
 
     @EventBusSubscriber(modid = MODID, bus = EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
     public static class ClientModEvents {
         @SubscribeEvent
         public static void onClientSetup(FMLClientSetupEvent event) {
-            LOGGER.debug("Larbaco Auth client setup completed");
+            LOGGER.debug("LarbacoAuth client setup completed");
         }
     }
 
-    /**
-     * Enhanced cleanup with monitoring shutdown
-     */
-    public static void cleanup() {
-        try {
-            LOGGER.info("Starting LarbacoAuth cleanup...");
+    // ==================== UTILITY METHODS ====================
 
-            // Clear authentication data
-            int authenticatedCount = authenticatedPlayers.size();
-            authenticatedPlayers.clear();
+    private static void cleanup() {
+        int authenticatedCount = authenticatedPlayers.size();
+        authenticatedPlayers.clear();
 
-            // Clear translations
-            int translationCount = translations.size();
-            translations.clear();
+        // Clear translations
+        int translationCount = translations.size();
+        translations.clear();
 
-            // Shutdown data manager
-            com.larbaco.larbaco_auth.storage.DataManager.shutdown();
+        initialized.set(false);
 
-            // Reset initialization flag
-            isInitialized = false;
-
-            LOGGER.info("Larbaco Auth cleaned up successfully - cleared {} authenticated players, {} translations",
-                    authenticatedCount, translationCount);
-
-        } catch (Exception e) {
-            LOGGER.error("Error during cleanup: {}", e.getMessage(), e);
-        }
+        LOGGER.info("LarbacoAuth cleanup completed - cleared {} authenticated players, {} translations",
+                authenticatedCount, translationCount);
     }
 
     /**
-     * Force authentication status update (for admin commands)
+     * Helper method to get player name from UUID (simplified version)
      */
-    public static void forceSetAuthenticated(UUID uuid, boolean status) {
-        if (status) {
-            authenticatedPlayers.add(uuid);
-        } else {
-            authenticatedPlayers.remove(uuid);
-        }
-
-        LOGGER.info("Force authentication status update: {} -> {}", uuid, status);
-
-        String action = status ? "FORCE_AUTHENTICATE" : "FORCE_DEAUTHENTICATE";
-        AuthLogger.logAuthEvent(uuid, getPlayerNameFromUUID(uuid), action,
-                "Authentication status force-updated by admin");
-    }
-
-    /**
-     * Get all authenticated player UUIDs (for monitoring)
-     */
-    public static Set<UUID> getAuthenticatedPlayers() {
-        return Set.copyOf(authenticatedPlayers);
-    }
-
-    /**
-     * Check if system is healthy
-     */
-    public static boolean isSystemHealthy() {
-        return isInitialized &&
-                com.larbaco.larbaco_auth.handlers.AuthSessionManager.isHealthy() &&
-                Config.validate();
+    private static String getPlayerNameFromUUID(UUID uuid) {
+        return uuid != null ? uuid.toString().substring(0, 8) : "Unknown";
     }
 }

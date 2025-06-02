@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2025 Larbaco
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ */
+
 package com.larbaco.larbaco_auth.commands;
 
 import com.larbaco.larbaco_auth.Config;
@@ -19,6 +37,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Administrative command system for LarbacoAuth
@@ -50,6 +69,8 @@ public class AuthAdminCommand {
                                 .executes(AuthAdminCommand::showPlayerLogs)
                                 .then(Commands.argument("lines", IntegerArgumentType.integer(1, 100))
                                         .executes(AuthAdminCommand::showPlayerLogsWithLimit)))
+                        .then(Commands.literal("cleanup")
+                                .executes(AuthAdminCommand::cleanupCorruptedLogs))
                         .executes(AuthAdminCommand::showRecentLogs))
 
                 .then(Commands.literal("monitor")
@@ -68,6 +89,21 @@ public class AuthAdminCommand {
                                 .executes(AuthAdminCommand::optimizeDatabase))
                         .then(Commands.literal("verify")
                                 .executes(AuthAdminCommand::verifyDatabase)))
+
+                // Player Management
+                .then(Commands.literal("player")
+                        .then(Commands.literal("reset")
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .executes(AuthAdminCommand::resetPlayerPassword)))
+                        .then(Commands.literal("unlock")
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .executes(AuthAdminCommand::unlockPlayer)))
+                        .then(Commands.literal("kick")
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .executes(AuthAdminCommand::kickPlayer)))
+                        .then(Commands.literal("info")
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .executes(AuthAdminCommand::showPlayerInfo))))
 
                 // System Information
                 .then(Commands.literal("info")
@@ -284,16 +320,6 @@ public class AuthAdminCommand {
         }
     }
 
-    private static int showPlayerLogsWithLimit(CommandContext<CommandSourceStack> context, int limit) {
-        try {
-            ServerPlayer targetPlayer = EntityArgument.getPlayer(context, "player");
-            return showPlayerLogsWithLimit(context, limit, targetPlayer);
-        } catch (Exception e) {
-            context.getSource().sendFailure(Component.literal("§c✗ Error retrieving player logs: " + e.getMessage()));
-            return 0;
-        }
-    }
-
     private static int showPlayerLogsWithLimit(CommandContext<CommandSourceStack> context, int limit, ServerPlayer targetPlayer) {
         try {
             var source = context.getSource();
@@ -329,6 +355,38 @@ public class AuthAdminCommand {
         } catch (Exception e) {
             LarbacoAuthMain.LOGGER.error("Error showing player logs: {}", e.getMessage(), e);
             context.getSource().sendFailure(Component.literal("§c✗ Error showing player logs: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int showPlayerLogsWithLimit(CommandContext<CommandSourceStack> context, int limit) {
+        try {
+            ServerPlayer targetPlayer = EntityArgument.getPlayer(context, "player");
+            return showPlayerLogsWithLimit(context, limit, targetPlayer);
+        } catch (Exception e) {
+            context.getSource().sendFailure(Component.literal("§c✗ Error retrieving player logs: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int cleanupCorruptedLogs(CommandContext<CommandSourceStack> context) {
+        try {
+            var source = context.getSource();
+            String adminName = source.getEntity() instanceof ServerPlayer player ?
+                    player.getName().getString() : "CONSOLE";
+
+            AuthLogger.logAdminAction(adminName, "LOG_CLEANUP", "Starting corrupted log cleanup");
+
+            // Perform log cleanup
+            AuthLogger.cleanupCorruptedLogFile();
+
+            source.sendSuccess(() -> Component.literal("§a✓ Log cleanup completed. Check server logs for details."), true);
+
+            return Command.SINGLE_SUCCESS;
+
+        } catch (Exception e) {
+            LarbacoAuthMain.LOGGER.error("Error during log cleanup: {}", e.getMessage(), e);
+            context.getSource().sendFailure(Component.literal("§c✗ Error during log cleanup: " + e.getMessage()));
             return 0;
         }
     }
@@ -574,6 +632,7 @@ public class AuthAdminCommand {
 
         source.sendSuccess(() -> Component.literal("§7Logging & Monitoring:"), false);
         source.sendSuccess(() -> Component.literal("§e/authman logs [player] [lines] §7- Show authentication logs"), false);
+        source.sendSuccess(() -> Component.literal("§e/authman logs cleanup §7- Clean up corrupted log entries"), false);
         source.sendSuccess(() -> Component.literal("§e/authman monitor start/stop §7- Control real-time monitoring"), false);
         source.sendSuccess(() -> Component.literal("§e/authman monitor report §7- Generate detailed report"), false);
 
@@ -582,10 +641,182 @@ public class AuthAdminCommand {
         source.sendSuccess(() -> Component.literal("§e/authman database optimize §7- Optimize database"), false);
         source.sendSuccess(() -> Component.literal("§e/authman database verify §7- Check database integrity"), false);
 
+        source.sendSuccess(() -> Component.literal("§7Player Management:"), false);
+        source.sendSuccess(() -> Component.literal("§e/authman player reset <player> §7- Reset player password"), false);
+        source.sendSuccess(() -> Component.literal("§e/authman player unlock <player> §7- Unlock player account"), false);
+        source.sendSuccess(() -> Component.literal("§e/authman player kick <player> §7- Kick and reset player session"), false);
+        source.sendSuccess(() -> Component.literal("§e/authman player info <player> §7- Show player authentication info"), false);
+
         source.sendSuccess(() -> Component.literal("§7Information:"), false);
         source.sendSuccess(() -> Component.literal("§e/authman info §7- Show system information"), false);
         source.sendSuccess(() -> Component.literal("§e/authman help §7- Show this help"), false);
 
         return Command.SINGLE_SUCCESS;
+    }
+
+    private static int resetPlayerPassword(CommandContext<CommandSourceStack> context) {
+        try {
+            var source = context.getSource();
+            ServerPlayer targetPlayer = EntityArgument.getPlayer(context, "player");
+            String adminName = source.getEntity() instanceof ServerPlayer player ?
+                    player.getName().getString() : "CONSOLE";
+
+            UUID targetUuid = targetPlayer.getUUID();
+
+            // Check if player is registered
+            if (!RegisterCommand.isRegistered(targetUuid)) {
+                source.sendFailure(Component.literal("§c✗ Player is not registered"));
+                return 0;
+            }
+
+            // Remove player from registered players (forces re-registration)
+            boolean success = RegisterCommand.unregisterPlayer(targetUuid);
+
+            if (success) {
+                // Clear authentication status
+                LarbacoAuthMain.setAuthenticated(targetUuid, false);
+
+                // Clear any pending operations
+                AuthSessionManager.clearPendingOperation(targetUuid);
+
+                // Clear login attempts
+                LoginCommand.clearAttempts(targetUuid);
+
+                source.sendSuccess(() -> Component.literal(String.format(
+                        "§a✓ Password reset for player %s\n§7Player must register again",
+                        targetPlayer.getName().getString())), true);
+
+                // Notify the player
+                MessageHelper.sendInfo(targetPlayer, "command.larbaco_auth.admin.password_reset");
+
+                AuthLogger.logAdminAction(adminName, "PASSWORD_RESET",
+                        "Reset password for player: " + targetPlayer.getName().getString());
+
+                return Command.SINGLE_SUCCESS;
+            } else {
+                source.sendFailure(Component.literal("§c✗ Failed to reset password"));
+                return 0;
+            }
+
+        } catch (Exception e) {
+            LarbacoAuthMain.LOGGER.error("Error resetting player password: {}", e.getMessage(), e);
+            context.getSource().sendFailure(Component.literal("§c✗ Error resetting password: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int unlockPlayer(CommandContext<CommandSourceStack> context) {
+        try {
+            var source = context.getSource();
+            ServerPlayer targetPlayer = EntityArgument.getPlayer(context, "player");
+            String adminName = source.getEntity() instanceof ServerPlayer player ?
+                    player.getName().getString() : "CONSOLE";
+
+            UUID targetUuid = targetPlayer.getUUID();
+
+            // Unlock the player account
+            LoginCommand.unlockAccount(targetUuid);
+
+            source.sendSuccess(() -> Component.literal(String.format(
+                    "§a✓ Account unlocked for player %s",
+                    targetPlayer.getName().getString())), true);
+
+            // Notify the player
+            MessageHelper.sendInfo(targetPlayer, "command.larbaco_auth.admin.account_unlocked");
+
+            AuthLogger.logAdminAction(adminName, "ACCOUNT_UNLOCK",
+                    "Unlocked account for player: " + targetPlayer.getName().getString());
+
+            return Command.SINGLE_SUCCESS;
+
+        } catch (Exception e) {
+            LarbacoAuthMain.LOGGER.error("Error unlocking player: {}", e.getMessage(), e);
+            context.getSource().sendFailure(Component.literal("§c✗ Error unlocking player: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int kickPlayer(CommandContext<CommandSourceStack> context) {
+        try {
+            var source = context.getSource();
+            ServerPlayer targetPlayer = EntityArgument.getPlayer(context, "player");
+            String adminName = source.getEntity() instanceof ServerPlayer player ?
+                    player.getName().getString() : "CONSOLE";
+
+            UUID targetUuid = targetPlayer.getUUID();
+
+            // Clear authentication status
+            LarbacoAuthMain.setAuthenticated(targetUuid, false);
+
+            // Clear any sessions and pending operations
+            AuthSessionManager.clearPendingOperation(targetUuid);
+
+            // Clear player data from action handler
+            com.larbaco.larbaco_auth.handlers.PlayerActionHandler.clearAllPlayerData(targetUuid);
+
+            // Kick the player
+            targetPlayer.connection.disconnect(Component.literal("§cDisconnected by administrator"));
+
+            source.sendSuccess(() -> Component.literal(String.format(
+                    "§a✓ Player %s kicked and session reset",
+                    targetPlayer.getName().getString())), true);
+
+            AuthLogger.logAdminAction(adminName, "PLAYER_KICK",
+                    "Kicked player and reset session: " + targetPlayer.getName().getString());
+
+            return Command.SINGLE_SUCCESS;
+
+        } catch (Exception e) {
+            LarbacoAuthMain.LOGGER.error("Error kicking player: {}", e.getMessage(), e);
+            context.getSource().sendFailure(Component.literal("§c✗ Error kicking player: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int showPlayerInfo(CommandContext<CommandSourceStack> context) {
+        try {
+            var source = context.getSource();
+            ServerPlayer targetPlayer = EntityArgument.getPlayer(context, "player");
+
+            UUID targetUuid = targetPlayer.getUUID();
+            String playerName = targetPlayer.getName().getString();
+
+            source.sendSuccess(() -> Component.literal(String.format(
+                    "§6=== Player Info: %s ===", playerName)), false);
+
+            // Registration status
+            boolean isRegistered = RegisterCommand.isRegistered(targetUuid);
+            source.sendSuccess(() -> Component.literal(String.format(
+                    "§7Registered: %s%s", isRegistered ? "§a" : "§c", isRegistered ? "Yes" : "No")), false);
+
+            // Authentication status
+            boolean isAuthenticated = LarbacoAuthMain.isPlayerAuthenticated(targetUuid);
+            source.sendSuccess(() -> Component.literal(String.format(
+                    "§7Authenticated: %s%s", isAuthenticated ? "§a" : "§c", isAuthenticated ? "Yes" : "No")), false);
+
+            // Failed attempts
+            int failedAttempts = LoginCommand.getFailedAttempts(targetUuid);
+            boolean isLocked = LoginCommand.isLockedOut(targetUuid);
+            source.sendSuccess(() -> Component.literal(String.format(
+                    "§7Failed Attempts: §e%d §7(Locked: %s%s§7)",
+                    failedAttempts, isLocked ? "§c" : "§a", isLocked ? "Yes" : "No")), false);
+
+            // Pending operations
+            var pendingOp = AuthSessionManager.getPendingOperation(targetUuid);
+            source.sendSuccess(() -> Component.literal(String.format(
+                    "§7Pending Operation: §e%s", pendingOp != null ? pendingOp.toString() : "None")), false);
+
+            // Game mode info
+            var gameMode = com.larbaco.larbaco_auth.handlers.PlayerActionHandler.getPersistentGameMode(targetUuid);
+            source.sendSuccess(() -> Component.literal(String.format(
+                    "§7Stored Game Mode: §e%s", gameMode != null ? gameMode.toString() : "None")), false);
+
+            return Command.SINGLE_SUCCESS;
+
+        } catch (Exception e) {
+            LarbacoAuthMain.LOGGER.error("Error showing player info: {}", e.getMessage(), e);
+            context.getSource().sendFailure(Component.literal("§c✗ Error showing player info: " + e.getMessage()));
+            return 0;
+        }
     }
 }

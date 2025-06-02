@@ -4,6 +4,8 @@ import com.larbaco.larbaco_auth.Config;
 import com.larbaco.larbaco_auth.LarbacoAuthMain;
 import com.larbaco.larbaco_auth.handlers.AuthSessionManager;
 import com.larbaco.larbaco_auth.handlers.PlayerActionHandler;
+import com.larbaco.larbaco_auth.monitoring.AuthLogger;
+import com.larbaco.larbaco_auth.monitoring.SystemMonitor;
 import com.larbaco.larbaco_auth.utils.MessageHelper;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
@@ -24,13 +26,12 @@ public class LoginCommand {
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("login")
                 .requires(source -> source.hasPermission(0))
-                .then(Commands.argument("token", StringArgumentType.word())
+                .then(Commands.argument("password", StringArgumentType.greedyString())
                         .executes(context -> {
                             ServerPlayer player = context.getSource().getPlayerOrException();
-                            String token = StringArgumentType.getString(context, "token");
-                            return processLogin(player, token);
-                        })
-                )
+                            String password = StringArgumentType.getString(context, "password");
+                            return processLoginWithPassword(player, password);
+                        }))
                 .executes(context -> {
                     ServerPlayer player = context.getSource().getPlayerOrException();
                     return initiateLogin(player);
@@ -40,42 +41,100 @@ public class LoginCommand {
 
     private static int initiateLogin(ServerPlayer player) {
         UUID uuid = player.getUUID();
+
+        // Check if already authenticated
         if (LarbacoAuthMain.isPlayerAuthenticated(uuid)) {
             MessageHelper.sendError(player, "command.larbaco_auth.login.already_authenticated");
             return 0;
         }
+
+        // Check if registered
         if (!RegisterCommand.isRegistered(uuid)) {
             MessageHelper.sendError(player, "command.larbaco_auth.login.not_registered");
             return 0;
         }
+
+        // Check if account is locked
         int attempts = failedAttempts.getOrDefault(uuid, 0);
         if (attempts >= Config.maxLoginAttempts) {
             MessageHelper.sendError(player, "command.larbaco_auth.login.locked");
             return 0;
         }
+
+        // Check cooldown
         if (isOnCooldown(uuid)) {
             long remainingMs = getRemainingCooldown(uuid);
             int remainingSeconds = (int) Math.ceil(remainingMs / 1000.0);
             MessageHelper.sendError(player, "command.larbaco_auth.login.cooldown", remainingSeconds);
             return 0;
         }
-        updateLastAttemptTime(uuid);
-        AuthSessionManager.setPendingOperation(uuid, AuthSessionManager.OperationType.LOGIN);
+
+        // Prompt for password
         MessageHelper.sendInfo(player, "command.larbaco_auth.login.enter_password");
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int processLogin(ServerPlayer player, String token) {
+    private static int processLoginWithPassword(ServerPlayer player, String password) {
+        UUID uuid = player.getUUID();
+
+        // Perform all the same checks as initiateLogin
+        if (LarbacoAuthMain.isPlayerAuthenticated(uuid)) {
+            MessageHelper.sendError(player, "command.larbaco_auth.login.already_authenticated");
+            return 0;
+        }
+
+        if (!RegisterCommand.isRegistered(uuid)) {
+            MessageHelper.sendError(player, "command.larbaco_auth.login.not_registered");
+            return 0;
+        }
+
+        int attempts = failedAttempts.getOrDefault(uuid, 0);
+        if (attempts >= Config.maxLoginAttempts) {
+            MessageHelper.sendError(player, "command.larbaco_auth.login.locked");
+            return 0;
+        }
+
+        if (isOnCooldown(uuid)) {
+            long remainingMs = getRemainingCooldown(uuid);
+            int remainingSeconds = (int) Math.ceil(remainingMs / 1000.0);
+            MessageHelper.sendError(player, "command.larbaco_auth.login.cooldown", remainingSeconds);
+            return 0;
+        }
+
+        updateLastAttemptTime(uuid);
+
+        // Create session token for this login attempt
+        String token = AuthSessionManager.createSession(player, password, AuthSessionManager.OperationType.LOGIN);
+        if (token == null) {
+            MessageHelper.sendError(player, "command.larbaco_auth.login.error");
+            return 0;
+        }
+
+        String messageKey = "command.larbaco_auth.login.token_generated";
+        MessageHelper.sendTokenMessage(player, messageKey, token);
+        return Command.SINGLE_SUCCESS;
+    }
+
+    // Token validation method for /auth command compatibility
+    public static int processLogin(ServerPlayer player, String token) {
         AuthSessionManager.SessionData session = AuthSessionManager.validateSession(token);
         UUID uuid = player.getUUID();
+
         if (session == null) {
             MessageHelper.sendError(player, "command.larbaco_auth.login.invalid_token");
             return 0;
         }
+
         if (!session.getPlayerId().equals(uuid)) {
             MessageHelper.sendError(player, "command.larbaco_auth.login.token_mismatch");
             return 0;
         }
+
+        if (session.getOperation() != AuthSessionManager.OperationType.LOGIN) {
+            MessageHelper.sendError(player, "command.larbaco_auth.login.invalid_operation");
+            return 0;
+        }
+
         try {
             String password = session.getPassword();
             return handlePasswordLogin(player, password);
@@ -88,41 +147,72 @@ public class LoginCommand {
 
     private static int handlePasswordLogin(ServerPlayer player, String password) {
         UUID uuid = player.getUUID();
+
+        // Final validation before attempting login
         if (LarbacoAuthMain.isPlayerAuthenticated(uuid)) {
             MessageHelper.sendError(player, "command.larbaco_auth.login.already_authenticated");
             return 0;
         }
+
         if (!RegisterCommand.isRegistered(uuid)) {
             MessageHelper.sendError(player, "command.larbaco_auth.login.not_registered");
             return 0;
         }
+
         int attempts = failedAttempts.getOrDefault(uuid, 0);
         if (attempts >= Config.maxLoginAttempts) {
             MessageHelper.sendError(player, "command.larbaco_auth.login.locked");
             return 0;
         }
-        updateLastAttemptTime(uuid);
+
+        // Record the authentication attempt
+        SystemMonitor.recordLoginAttempt(false); // Will be updated to true if successful
+
+        // Verify password
         if (RegisterCommand.verifyPassword(uuid, password)) {
+            // SUCCESS: Login successful
             LarbacoAuthMain.setAuthenticated(uuid, true);
             PlayerActionHandler.onAuthenticationSuccess(player);
             clearAttempts(uuid);
             clearCooldown(uuid);
+
+            // Update monitoring
+            SystemMonitor.recordLoginAttempt(true); // Override previous false record
+
+            // Log successful login
+            AuthLogger.logAuthEvent(uuid, player.getName().getString(), "LOGIN_SUCCESS",
+                    "Player successfully authenticated");
+
             MessageHelper.sendSuccess(player, "command.larbaco_auth.login.success");
             LarbacoAuthMain.LOGGER.info("Player {} logged in successfully", player.getName().getString());
+
             return Command.SINGLE_SUCCESS;
+
         } else {
+            // FAILURE: Invalid password
             attempts++;
             failedAttempts.put(uuid, attempts);
             int remaining = Config.maxLoginAttempts - attempts;
+
+            // Log failed attempt
+            AuthLogger.logAuthEvent(uuid, player.getName().getString(), "LOGIN_FAILED",
+                    String.format("Invalid password, %d attempts remaining", remaining));
+
             MessageHelper.sendError(player, "command.larbaco_auth.login.failed", remaining);
+
             if (remaining <= 0) {
                 MessageHelper.sendError(player, "command.larbaco_auth.login.locked");
-                LarbacoAuthMain.LOGGER.warn("Player {} locked out after {} attempts", player.getName().getString(), Config.maxLoginAttempts);
+                AuthLogger.logAuthEvent(uuid, player.getName().getString(), "ACCOUNT_LOCKED",
+                        String.format("Account locked after %d failed attempts", Config.maxLoginAttempts));
+                LarbacoAuthMain.LOGGER.warn("Player {} locked out after {} attempts",
+                        player.getName().getString(), Config.maxLoginAttempts);
             }
+
             return 0;
         }
     }
 
+    // Helper methods
     private static boolean isOnCooldown(UUID uuid) {
         Long lastAttempt = lastAttemptTime.get(uuid);
         if (lastAttempt == null) return false;
