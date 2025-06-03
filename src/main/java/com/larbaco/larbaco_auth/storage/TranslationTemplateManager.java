@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2025 Larbaco
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ */
+
 package com.larbaco.larbaco_auth.storage;
 
 import com.google.gson.Gson;
@@ -76,15 +94,15 @@ public class TranslationTemplateManager {
         Map<String, String> translations = new HashMap<>();
 
         if (fileName.equals("pt_br.json")) {
-            translations.put("command.larbaco_auth.login.prompt", "Â§eBem-vindo de volta! FaÃ§a login usando Â§6/loginÂ§e ou Â§6/auth <senha>");
-            translations.put("command.larbaco_auth.register.prompt", "Â§eBem-vindo! Registre-se usando Â§6/registerÂ§e ou Â§6/auth <senha>");
-            translations.put("command.larbaco_auth.login.success", "Â§aLogin bem-sucedido! Bem-vindo de volta");
-            translations.put("command.larbaco_auth.register.success", "Â§aRegistro bem-sucedido! Agora vocÃª pode fazer login");
+            translations.put("command.larbaco_auth.login.prompt", "§eBem-vindo de volta! Faça login usando §6/login§e ou §6/auth <senha>");
+            translations.put("command.larbaco_auth.register.prompt", "§eBem-vindo! Registre-se usando §6/register§e ou §6/auth <senha>");
+            translations.put("command.larbaco_auth.login.success", "§aLogin bem-sucedido! Bem-vindo de volta");
+            translations.put("command.larbaco_auth.register.success", "§aRegistro bem-sucedido! Agora você pode fazer login");
         } else {
-            translations.put("command.larbaco_auth.login.prompt", "Â§eWelcome back! Please login using Â§6/loginÂ§e or Â§6/auth <password>");
-            translations.put("command.larbaco_auth.register.prompt", "Â§eWelcome! Please register using Â§6/registerÂ§e or Â§6/auth <password>");
-            translations.put("command.larbaco_auth.login.success", "Â§aLogin successful! Welcome back");
-            translations.put("command.larbaco_auth.register.success", "Â§aRegistration successful! You can now login");
+            translations.put("command.larbaco_auth.login.prompt", "§eWelcome back! Please login using §6/login§e or §6/auth <password>");
+            translations.put("command.larbaco_auth.register.prompt", "§eWelcome! Please register using §6/register§e or §6/auth <password>");
+            translations.put("command.larbaco_auth.login.success", "§aLogin successful! Welcome back");
+            translations.put("command.larbaco_auth.register.success", "§aRegistration successful! You can now login");
         }
 
         return translations;
