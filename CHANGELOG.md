@@ -14,3 +14,6 @@
 ## Version 1.0.0-alpha.6
 - implement password change 
 - inverted login/register commands to make more sense
+## Version 1.0.0-alpha.7
+- revised the Configs
+- made the session tied to IP

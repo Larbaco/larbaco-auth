@@ -1,0 +1,66 @@
+# ============================================================================
+# Balanced Security Preset (Recommended)
+# ============================================================================
+# Perfect balance between security and user convenience
+# This is the recommended preset for most Minecraft servers
+
+name: "Balanced Security"
+description: "Recommended for most servers - good security with user convenience"
+version: "1.0.0"
+
+# Preset characteristics
+characteristics:
+  securityLevel: "Medium-High" # Strong security without being restrictive
+  userConvenience: "High" # Easy for legitimate users
+  mobileSupport: "Good" # Works well with mobile players
+  recommended: true # This is the recommended default
+
+# Best use cases for this preset
+bestFor:
+- "Most survival servers"
+- "Medium-sized communities (10-100 players)"
+- "Mixed player base (desktop + mobile)"
+- "Servers with regular/returning players"
+- "General-purpose Minecraft servers"
+
+# What makes this preset balanced
+features:
+- "Reasonable login attempt limits"
+- "30-minute session duration"
+- "IP validation with mobile support"
+- "Strong password requirements"
+- "Comprehensive logging enabled"
+
+# ============================================================================
+# CONFIGURATION VALUES
+# ============================================================================
+# Only values that differ from defaults are specified here
+# All other values inherit from defaults.yml
+
+# These match the defaults but are explicitly stated for clarity
+security:
+  maxLoginAttempts: 3 # 3 attempts before lockout - prevents brute force, allows typos
+  sessionDuration: 30 # 30-minute sessions - good security/convenience balance
+  lockoutDuration: 15 # 15-minute lockout - deters attackers, not too punitive
+  passwordMinLength: 6 # 6 characters minimum - accessible but secure
+  requireMixedCase: true # Mixed case required - significantly increases password strength
+  requireSpecialChar: true # Special chars required - makes passwords much harder to crack
+  requireNumbers: false # Numbers optional - mixed case + special chars provide good security
+
+sessionSecurity:
+  enableSessionIPValidation: true # IP validation prevents session hijacking
+  ipFailureThreshold: 10 # 10 failures before IP block - reasonable for legitimate users
+  ipBlockDuration: 60 # 1-hour IP blocks - deters attackers without permanent blocking
+  allowSubnetChanges: true # Allow subnet changes - supports mobile/corporate users
+
+performance:
+  maxConcurrentSessions: 100 # 100 concurrent sessions - suitable for medium servers
+  databasePoolSize: 5 # 5 DB connections - good performance without waste
+
+logging:
+  enableDetailedLogging: true # Detailed logging essential for security monitoring
+  logRetentionDays: 30 # 30-day retention balances investigation needs with storage
+
+monitoring:
+  enableMonitoring: false # Monitoring disabled by default - can be enabled if needed
+  healthCheckInterval: 5 # 5-minute health checks - good monitoring without overhead

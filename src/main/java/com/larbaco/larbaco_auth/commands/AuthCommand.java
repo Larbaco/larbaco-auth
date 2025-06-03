@@ -20,6 +20,8 @@ package com.larbaco.larbaco_auth.commands;
 
 import com.larbaco.larbaco_auth.LarbacoAuthMain;
 import com.larbaco.larbaco_auth.handlers.AuthSessionManager;
+import com.larbaco.larbaco_auth.handlers.OperationType;
+import com.larbaco.larbaco_auth.handlers.SessionData;
 import com.larbaco.larbaco_auth.monitoring.AuthLogger;
 import com.larbaco.larbaco_auth.utils.MessageHelper;
 import com.mojang.brigadier.Command;
@@ -65,7 +67,7 @@ public class AuthCommand {
 
         try {
             // First, validate the session token - check if it exists and is valid without consuming
-            AuthSessionManager.SessionData session = AuthSessionManager.getSessionWithoutValidation(token);
+            SessionData session = AuthSessionManager.getSessionWithoutValidation(token);
 
             if (session == null) {
                 MessageHelper.sendError(player, "command.larbaco_auth.auth.invalid_token");
@@ -142,7 +144,7 @@ public class AuthCommand {
         UUID uuid = player.getUUID();
 
         // Check if player has a pending operation
-        AuthSessionManager.OperationType pendingOp = AuthSessionManager.getPendingOperation(uuid);
+        OperationType pendingOp = AuthSessionManager.getPendingOperation(uuid);
 
         if (pendingOp != null) {
             String operationMsg = switch (pendingOp) {

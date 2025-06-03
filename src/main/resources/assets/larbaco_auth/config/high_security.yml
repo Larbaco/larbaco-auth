@@ -1,0 +1,73 @@
+# ============================================================================
+# High Security Preset (Enterprise/Sensitive Servers)
+# ============================================================================
+# Maximum security for sensitive servers and valuable content
+# Use only when security is more important than user convenience
+
+name: "High Security"
+description: "Maximum security for sensitive servers - may inconvenience mobile users"
+version: "1.0.0"
+
+# Preset characteristics
+characteristics:
+  securityLevel: "Maximum" # Highest possible security
+  userConvenience: "Medium" # Some inconvenience for max security
+  mobileSupport: "Limited" # May not work well with mobile players
+  recommended: false # Only for specific use cases
+
+# Best use cases for this preset
+bestFor:
+- "Servers with valuable items/builds"
+- "Whitelist/private servers"
+- "Servers with sensitive content"
+- "Enterprise/business servers"
+- "Creative servers with important builds"
+
+# Important warnings for administrators
+warnings:
+- "May be inconvenient for mobile users"
+- "Stricter password requirements may frustrate some players"
+- "More aggressive IP blocking may cause false positives"
+- "Not recommended for public servers with casual players"
+- "Consider user impact before implementing"
+
+# Security features of this preset
+securityFeatures:
+- "Only 2 login attempts before lockout"
+- "Short 15-minute session duration"
+- "Strict IP validation (no subnet changes)"
+- "Complex password requirements"
+- "Aggressive IP blocking (5 failures)"
+- "Extended log retention (90 days)"
+
+# ============================================================================
+# CONFIGURATION VALUES
+# ============================================================================
+# High-security settings that override defaults
+
+security:
+  maxLoginAttempts: 2 # Only 2 attempts - quickly locks out attackers
+  sessionDuration: 15 # 15-minute sessions - reduces hijacking window
+  lockoutDuration: 30 # 30-minute lockouts - longer penalty deters attacks
+  passwordMinLength: 8 # 8 characters minimum - significantly harder to crack
+  requireMixedCase: true # Mixed case required - essential for strong passwords
+  requireSpecialChar: true # Special characters required - dramatically increases complexity
+  requireNumbers: true # Numbers required - full character set makes brute force impractical
+
+sessionSecurity:
+  enableSessionIPValidation: true # IP validation critical for high-security environments
+  ipFailureThreshold: 5 # Only 5 failures before IP block - aggressive protection
+  ipBlockDuration: 180 # 3-hour IP blocks - long deterrent for persistent attackers
+  allowSubnetChanges: false # No subnet changes - each session locked to exact IP
+
+performance:
+  maxConcurrentSessions: 50 # Lower session limit - reduces attack surface
+  databasePoolSize: 3 # Smaller connection pool - high-security servers have fewer users
+
+logging:
+  enableDetailedLogging: true # Detailed logging essential for security investigations
+  logRetentionDays: 90 # 3-month retention for compliance and investigation
+
+monitoring:
+  enableMonitoring: true # Real-time monitoring critical for incident detection
+  healthCheckInterval: 2 # Health checks every 2 minutes for rapid response

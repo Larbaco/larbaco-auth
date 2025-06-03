@@ -1,0 +1,72 @@
+# ============================================================================
+# Mobile & Network Friendly Preset
+# ============================================================================
+# Optimized for players who frequently change networks or use mobile devices
+# Maintains security while accommodating mobile/network limitations
+
+name: "Mobile & Network Friendly"
+description: "Optimized for mobile players and unstable network connections"
+version: "1.0.0"
+
+# Preset characteristics
+characteristics:
+  securityLevel: "Medium" # Good security with mobile accommodations
+  userConvenience: "Maximum" # Prioritizes user experience
+  mobileSupport: "Excellent" # Specifically designed for mobile users
+  recommended: false # For specific mobile-heavy servers
+
+# Best use cases for this preset
+bestFor:
+- "Servers with many mobile players (Pocket Edition)"
+- "Players frequently using public WiFi"
+- "Corporate network users (changing IPs)"
+- "Players with unstable internet connections"
+- "International player base with diverse networks"
+
+# Mobile-specific considerations
+mobileConsiderations:
+- "Mobile keyboards make special characters difficult"
+- "Network switching common on mobile devices"
+- "Battery concerns require longer session durations"
+- "Touch typing leads to more password mistakes"
+- "Corporate/school networks often change IPs"
+
+# Features of this preset
+features:
+- "5 login attempts (accommodates mobile typing)"
+- "1-hour session duration (reduces re-authentication)"
+- "No special character requirement (mobile-friendly)"
+- "High IP failure threshold (network switching tolerance)"
+- "Shorter lockout periods (accidental trigger recovery)"
+
+# ============================================================================
+# CONFIGURATION VALUES
+# ============================================================================
+# Mobile-optimized settings
+
+security:
+  maxLoginAttempts: 5 # 5 attempts - mobile keyboards can be tricky
+  sessionDuration: 60 # 1-hour sessions - reduces re-auth when switching networks
+  lockoutDuration: 10 # 10-minute lockouts - shorter penalty for mobile users
+  passwordMinLength: 6 # 6 characters - balances security with mobile convenience
+  requireMixedCase: true # Mixed case still required - important security feature
+  requireSpecialChar: false # No special chars - difficult on mobile keyboards
+  requireNumbers: false # No numbers required - keeps mobile typing simple
+
+sessionSecurity:
+  enableSessionIPValidation: true # IP validation still enabled for security
+  ipFailureThreshold: 20 # High threshold - mobile networks cause frequent IP changes
+  ipBlockDuration: 30 # 30-minute blocks - shorter for legitimate users
+  allowSubnetChanges: true # Critical for mobile users moving between cell towers
+
+performance:
+  maxConcurrentSessions: 150 # Higher limit - mobile users may have multiple attempts
+  databasePoolSize: 7 # Larger pool - more concurrent auths from network switching
+
+logging:
+  enableDetailedLogging: true # Important to track mobile-specific authentication patterns
+  logRetentionDays: 21 # 3-week retention - mobile users generate more log entries
+
+monitoring:
+  enableMonitoring: false # Disabled - mobile users create more monitoring 'noise'
+  healthCheckInterval: 10 # Less frequent checks - reduces overhead for mobile servers

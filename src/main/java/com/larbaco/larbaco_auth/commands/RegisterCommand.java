@@ -3,6 +3,8 @@ package com.larbaco.larbaco_auth.commands;
 import com.larbaco.larbaco_auth.Config;
 import com.larbaco.larbaco_auth.LarbacoAuthMain;
 import com.larbaco.larbaco_auth.handlers.AuthSessionManager;
+import com.larbaco.larbaco_auth.handlers.OperationType;
+import com.larbaco.larbaco_auth.handlers.SessionData;
 import com.larbaco.larbaco_auth.storage.DataManager;
 import com.larbaco.larbaco_auth.utils.MessageHelper;
 import com.mojang.brigadier.Command;
@@ -64,7 +66,7 @@ public class RegisterCommand {
         }
 
         // Create session token for this registration attempt
-        String token = AuthSessionManager.createSession(player, password, AuthSessionManager.OperationType.REGISTER);
+        String token = AuthSessionManager.createSession(player, password, OperationType.REGISTER);
         if (token == null) {
             MessageHelper.sendError(player, "command.larbaco_auth.register.error");
             return 0;
@@ -77,7 +79,7 @@ public class RegisterCommand {
 
     // Keep the original token validation method for /auth command compatibility
     public static int processRegistration(ServerPlayer player, String token) {
-        AuthSessionManager.SessionData session = AuthSessionManager.validateSession(token);
+        SessionData session = AuthSessionManager.validateSession(token);
         UUID uuid = player.getUUID();
 
         if (session == null) {
@@ -90,7 +92,7 @@ public class RegisterCommand {
             return 0;
         }
 
-        if (session.getOperation() != AuthSessionManager.OperationType.REGISTER) {
+        if (session.getOperation() != OperationType.REGISTER) {
             MessageHelper.sendError(player, "command.larbaco_auth.register.invalid_operation");
             return 0;
         }

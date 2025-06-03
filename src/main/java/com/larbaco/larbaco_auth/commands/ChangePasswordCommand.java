@@ -3,6 +3,8 @@ package com.larbaco.larbaco_auth.commands;
 import com.larbaco.larbaco_auth.Config;
 import com.larbaco.larbaco_auth.LarbacoAuthMain;
 import com.larbaco.larbaco_auth.handlers.AuthSessionManager;
+import com.larbaco.larbaco_auth.handlers.OperationType;
+import com.larbaco.larbaco_auth.handlers.SessionData;
 import com.larbaco.larbaco_auth.monitoring.AuthLogger;
 import com.larbaco.larbaco_auth.utils.MessageHelper;
 import com.mojang.brigadier.Command;
@@ -106,7 +108,7 @@ public class ChangePasswordCommand {
         updateLastChangeAttempt(uuid);
 
         // Create session token for password change
-        String token = AuthSessionManager.createSession(player, newPassword, AuthSessionManager.OperationType.CHANGE_PASSWORD);
+        String token = AuthSessionManager.createSession(player, newPassword, OperationType.CHANGE_PASSWORD);
         if (token == null) {
             MessageHelper.sendError(player, "command.larbaco_auth.changepassword.error");
             return 0;
@@ -119,7 +121,7 @@ public class ChangePasswordCommand {
 
     // Token validation method for /auth command compatibility
     public static int processPasswordChange(ServerPlayer player, String token) {
-        AuthSessionManager.SessionData session = AuthSessionManager.validateSession(token);
+        SessionData session = AuthSessionManager.validateSession(token);
         UUID uuid = player.getUUID();
 
         if (session == null) {
@@ -132,7 +134,7 @@ public class ChangePasswordCommand {
             return 0;
         }
 
-        if (session.getOperation() != AuthSessionManager.OperationType.CHANGE_PASSWORD) {
+        if (session.getOperation() != OperationType.CHANGE_PASSWORD) {
             MessageHelper.sendError(player, "command.larbaco_auth.changepassword.invalid_operation");
             return 0;
         }

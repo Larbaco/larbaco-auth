@@ -1,0 +1,82 @@
+# ============================================================================
+# LarbacoAuth Default Configuration
+# ============================================================================
+# Base configuration values used when no preset is selected
+# These are the recommended defaults for most Minecraft servers
+
+version: "1.0.0"
+lastUpdated: "2025-01-02"
+
+# Default preset to use when none is specified
+defaultPreset: "balanced"
+
+# Available presets (for reference)
+availablePresets:
+- "balanced" # Recommended for most servers
+- "high_security" # Maximum security for sensitive servers
+- "mobile_friendly" # Optimized for mobile players
+- "lan_party" # Relaxed for trusted local environments
+- "public_server" # Large public servers with diverse players
+
+# ============================================================================
+# BASE CONFIGURATION VALUES
+# ============================================================================
+# These values are used as fallbacks and when no preset is selected
+
+# Core security settings
+security:
+  maxLoginAttempts: 3 # Failed attempts before account lockout
+  sessionDuration: 30 # Session duration in minutes
+  lockoutDuration: 15 # Account lockout duration in minutes
+  passwordMinLength: 6 # Minimum password length (4-64)
+  requireMixedCase: true # Require uppercase and lowercase letters
+  requireSpecialChar: true # Require special characters (!@#$%^&*)
+  requireNumbers: false # Require at least one number
+
+# Session security (IP-based validation to prevent hijacking)
+sessionSecurity:
+  enableSessionIPValidation: true # Enable IP validation for sessions
+  ipFailureThreshold: 10 # IP failures before temporary blocking
+  ipBlockDuration: 60 # IP block duration in minutes
+  allowSubnetChanges: true # Allow IP changes within same subnet (mobile support)
+
+# Performance settings
+performance:
+  maxConcurrentSessions: 100 # Maximum simultaneous authentication sessions
+  databasePoolSize: 5 # Database connection pool size (1-20)
+
+# Logging configuration
+logging:
+  enableDetailedLogging: true # Enable detailed authentication event logging
+  logRetentionDays: 30 # Number of days to retain authentication logs (1-365)
+
+# System monitoring
+monitoring:
+  enableMonitoring: false # Enable real-time system monitoring and metrics
+  healthCheckInterval: 5 # Health check interval in minutes (1-60)
+
+# ============================================================================
+# CONFIGURATION VALIDATION RULES
+# ============================================================================
+# These define the valid ranges for each setting (used by Config.validate())
+
+validation:
+  security:
+    maxLoginAttempts: [ 1, 10 ] # Min: 1, Max: 10
+    sessionDuration: [ 5, 1440 ] # Min: 5 minutes, Max: 24 hours
+    lockoutDuration: [ 1, 1440 ] # Min: 1 minute, Max: 24 hours
+    passwordMinLength: [ 4, 64 ] # Min: 4 chars, Max: 64 chars
+
+  sessionSecurity:
+    ipFailureThreshold: [ 3, 50 ] # Min: 3, Max: 50
+    ipBlockDuration: [ 5, 1440 ] # Min: 5 minutes, Max: 24 hours
+
+  performance:
+    maxConcurrentSessions: [ 10, 1000 ] # Min: 10, Max: 1000
+    databasePoolSize: [ 1, 20 ] # Min: 1, Max: 20
+
+  logging:
+    logRetentionDays: [ 1, 365 ] # Min: 1 day, Max: 1 year
+
+  monitoring:
+    healthCheckInterval: [ 1, 60 ] # Min: 1 minute, Max: 1 hour

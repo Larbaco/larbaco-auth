@@ -3,7 +3,9 @@ package com.larbaco.larbaco_auth.commands;
 import com.larbaco.larbaco_auth.Config;
 import com.larbaco.larbaco_auth.LarbacoAuthMain;
 import com.larbaco.larbaco_auth.handlers.AuthSessionManager;
+import com.larbaco.larbaco_auth.handlers.OperationType;
 import com.larbaco.larbaco_auth.handlers.PlayerActionHandler;
+import com.larbaco.larbaco_auth.handlers.SessionData;
 import com.larbaco.larbaco_auth.monitoring.AuthLogger;
 import com.larbaco.larbaco_auth.monitoring.SystemMonitor;
 import com.larbaco.larbaco_auth.utils.MessageHelper;
@@ -104,7 +106,7 @@ public class LoginCommand {
         updateLastAttemptTime(uuid);
 
         // Create session token for this login attempt
-        String token = AuthSessionManager.createSession(player, password, AuthSessionManager.OperationType.LOGIN);
+        String token = AuthSessionManager.createSession(player, password, OperationType.LOGIN);
         if (token == null) {
             MessageHelper.sendError(player, "command.larbaco_auth.login.error");
             return 0;
@@ -117,7 +119,7 @@ public class LoginCommand {
 
     // Token validation method for /auth command compatibility
     public static int processLogin(ServerPlayer player, String token) {
-        AuthSessionManager.SessionData session = AuthSessionManager.validateSession(token);
+        SessionData session = AuthSessionManager.validateSession(token);
         UUID uuid = player.getUUID();
 
         if (session == null) {
@@ -130,7 +132,7 @@ public class LoginCommand {
             return 0;
         }
 
-        if (session.getOperation() != AuthSessionManager.OperationType.LOGIN) {
+        if (session.getOperation() != OperationType.LOGIN) {
             MessageHelper.sendError(player, "command.larbaco_auth.login.invalid_operation");
             return 0;
         }
